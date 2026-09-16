@@ -528,10 +528,12 @@ class SimpleReadableMetadataSG:
             except json.JSONDecodeError:
                 pass
 
-            # Then try A1111/WebUI pattern detection
-            if (re.search(r'Steps:\s*\d+', text) or 
-                re.search(r'Sampler:\s*\w+', text) or 
-                re.search(r'CFG scale:\s*[\d.]+', text)):
+            # Then try A1111/WebUI settings detection
+            if re.search(
+                r'(?im)^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                text,
+            ):
                 return "webui"
 
             return "unknown"
@@ -560,17 +562,31 @@ class SimpleReadableMetadataSG:
             lines = text.strip().split('\n')
             positive_prompt = ""
             negative_prompt = ""
-            metadata_line = ""
+            metadata_lines = []
+            section = "positive"
+            settings_pattern = re.compile(
+                r'^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                re.IGNORECASE,
+            )
 
-            for i, line in enumerate(lines):
+            for line in lines:
                 if line.startswith("Negative prompt:"):
-                    negative_prompt = line.replace("Negative prompt:", "").strip()
-                elif re.search(r'Steps:\s*\d+', line):
-                    metadata_line = line
-                elif not metadata_line and not line.startswith("Negative prompt:"):
+                    section = "negative"
+                    negative_prompt += line.replace("Negative prompt:", "", 1).strip() + " "
+                elif settings_pattern.match(line):
+                    metadata_lines.append(line.strip())
+                    section = "done"
+                elif section == "positive":
                     positive_prompt += line + " "
+                elif section == "negative":
+                    negative_prompt += line + " "
+                elif section == "done":
+                    metadata_lines.append(line.strip())
 
             positive_prompt = positive_prompt.strip()
+            negative_prompt = negative_prompt.strip()
+            metadata_line = ", ".join(metadata_lines)
 
             # Extract model name from metadata for display at the top
             model_name_display = "N/A"
@@ -1243,15 +1259,24 @@ class SimpleReadableMetadataSG:
             
             elif format_type == "webui":
                 lines = text.strip().split('\n')
-                metadata_line = ""
+                section = "positive"
+                settings_pattern = re.compile(
+                    r'^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                    r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                    re.IGNORECASE,
+                )
                 for line in lines:
                     if line.startswith("Negative prompt:"):
-                        negative = line.replace("Negative prompt:", "").strip()
-                    elif re.search(r'Steps:\s*\d+', line):
-                        metadata_line = line
-                    elif not metadata_line and not line.startswith("Negative prompt:"):
+                        section = "negative"
+                        negative += line.replace("Negative prompt:", "", 1).strip() + " "
+                    elif settings_pattern.match(line):
+                        section = "done"
+                    elif section == "positive":
                         positive += line + " "
+                    elif section == "negative":
+                        negative += line + " "
                 positive = positive.strip()
+                negative = negative.strip()
         
         except Exception as e:
             print(f"Error in extract_individual_params: {e}")

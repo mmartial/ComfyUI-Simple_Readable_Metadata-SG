@@ -602,7 +602,11 @@ class SimpleReadableMetadataMAXSG:
             except json.JSONDecodeError:
                 pass
             
-            if re.search(r'Steps:\s*\d+', text) or re.search(r'Sampler:\s*\w+', text):
+            if re.search(
+                r'(?im)^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                text,
+            ):
                 return "webui"
         
         except Exception as e:
@@ -630,17 +634,31 @@ class SimpleReadableMetadataMAXSG:
             lines = text.strip().split('\n')
             positive_prompt = ""
             negative_prompt = ""
-            metadata_line = ""
-            
-            for i, line in enumerate(lines):
+            metadata_lines = []
+            section = "positive"
+            settings_pattern = re.compile(
+                r'^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                re.IGNORECASE,
+            )
+
+            for line in lines:
                 if line.startswith("Negative prompt:"):
-                    negative_prompt = line.replace("Negative prompt:", "").strip()
-                elif re.search(r'Steps:\s*\d+', line):
-                    metadata_line = line
-                elif not metadata_line and not line.startswith("Negative prompt:"):
+                    section = "negative"
+                    negative_prompt += line.replace("Negative prompt:", "", 1).strip() + " "
+                elif settings_pattern.match(line):
+                    metadata_lines.append(line.strip())
+                    section = "done"
+                elif section == "positive":
                     positive_prompt += line + " "
+                elif section == "negative":
+                    negative_prompt += line + " "
+                elif section == "done":
+                    metadata_lines.append(line.strip())
             
             positive_prompt = positive_prompt.strip()
+            negative_prompt = negative_prompt.strip()
+            metadata_line = ", ".join(metadata_lines)
             
             output.append(f"{emoji_map['prompts']} PROMPTS: |If empty, Check fail-safe below|\n")
             output.append(f"  Positive:\n           {positive_prompt if positive_prompt else '(empty)'}\n")
@@ -1408,12 +1426,24 @@ class SimpleReadableMetadataMAXSG:
             
             elif format_type == "webui":
                 lines = text.strip().split('\n')
+                section = "positive"
+                settings_pattern = re.compile(
+                    r'^\s*(?:Steps|Sampler|CFG scale|Seed|Size|Model(?: hash)?|'
+                    r'Denoising strength|Clip skip|Schedule type|Version)\s*:',
+                    re.IGNORECASE,
+                )
                 for line in lines:
                     if line.startswith("Negative prompt:"):
-                        negative = line.replace("Negative prompt:", "").strip()
-                    elif not line.startswith("Negative prompt:"):
+                        section = "negative"
+                        negative += line.replace("Negative prompt:", "", 1).strip() + " "
+                    elif settings_pattern.match(line):
+                        section = "done"
+                    elif section == "positive":
                         positive += line + " "
+                    elif section == "negative":
+                        negative += line + " "
                 positive = positive.strip()
+                negative = negative.strip()
         
         except Exception as e:
             print(f"Error in extract_individual_params: {e}")
